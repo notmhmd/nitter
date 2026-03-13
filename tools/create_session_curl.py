@@ -75,6 +75,8 @@ def make_request(session, headers, flow_token, subtask_data, print_msg):
     }
 
     response = session.post(BASE_URL, json=payload, headers=headers)
+    if response.status_code != 200:
+        print(f"[!] Warning response: {response.text}", file=sys.stderr)
     response.raise_for_status()
 
     data = response.json()
@@ -250,9 +252,15 @@ def login_and_get_cookies(username, password, totp_seed=None):
         if needs_2fa:
             flow_token = submit_2fa(session, flow_token, headers, guest_token, totp_seed)
 
-        complete_flow(session, flow_token, headers)
+        try:
+            complete_flow(session, flow_token, headers)
+        except Exception as e:
+            print(f"[!] Warning: complete_flow failed ({e}), but checking cookies anyway...", file=sys.stderr)
 
         cookies_dict = get_cookies_dict(session)
+        if "auth_token" not in cookies_dict:
+             raise Exception("Authentication failed: No auth_token found in cookies")
+        
         cookies_dict['username'] = username
 
         user_id = extract_user_id(cookies_dict)
@@ -310,7 +318,7 @@ def main():
 
         if append_file:
             with open(append_file, 'a') as f:
-                f.write(output + '\n')
+                f.write(output + "\n")
             print(f'✓ Session appended to {append_file}', file=sys.stderr)
         else:
             print(output)
@@ -319,8 +327,6 @@ def main():
 
     except Exception as error:
         print(f'[!] Error: {error}', file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 

@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
 """
 Requirements:
-  pip install -r tools/requirements.txt
+  pip install nodriver pyotp
 
 Usage:
   python3 tools/create_session_browser.py <username> <password> [totp_seed] [--append sessions.jsonl] [--headless]
-
-Examples:
-  # Output to terminal
-  python3 tools/create_session_browser.py myusername mypassword TOTP_SECRET
-
-  # Append to sessions.jsonl
-  python3 tools/create_session_browser.py myusername mypassword TOTP_SECRET --append sessions.jsonl
-
-  # Headless mode (may increase detection risk)
-  python3 tools/create_session_browser.py myusername mypassword TOTP_SECRET --headless
-
-Output:
-  {"kind": "cookie", "username": "...", "id": "...", "auth_token": "...", "ct0": "..."}
 """
 
 import asyncio
@@ -31,8 +18,10 @@ import pyotp
 
 async def login_and_get_cookies(username, password, totp_seed=None, headless=False):
     """Authenticate with X.com and extract session cookies"""
-    # Note: headless mode may increase detection risk from bot-detection systems
-    browser = await uc.start(headless=headless)
+    browser = await uc.start(
+        headless=headless,
+        browser_args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    )
     tab = await browser.get("https://x.com/i/flow/login")
 
     try:
@@ -40,78 +29,142 @@ async def login_and_get_cookies(username, password, totp_seed=None, headless=Fal
         print(f"[*] Entering username {username}...", file=sys.stderr)
 
         retry = 0
+        username_input = None
         while retry < 5:
-            username_input = await tab.find(
-                'input[autocomplete="username"]', timeout=10
-            )
+            try:
+                # Try multiple common selectors
+                selectors = [
+                    'input[autocomplete="username"]',
+                    'input[name="text"]',
+                    'input[type="text"]'
+                ]
+                for sel in selectors:
+                    try:
+                        username_input = await tab.find(sel, timeout=5)
+                        if username_input:
+                            print(f"[+] Found username input with selector: {sel}", file=sys.stderr)
+                            break
+                    except:
+                        continue
+                
+                if not username_input:
+                     raise Exception("No username input found with any selector")
+            except Exception as e:
+                print(f"[!] Warning: Could not find username input: {e}", file=sys.stderr)
+                content = await tab.get_content()
+                with open("debug_login.html", "w") as f:
+                    f.write(content)
+                print(f"[*] Page content preview (first 200 chars): {content[:200]}", file=sys.stderr)
+                await asyncio.sleep(5)
+                retry += 1
+                continue
 
             pos = await username_input.get_position()
             await tab.mouse_move(pos.x, pos.y, steps=50, flash=True)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
 
             await username_input.click()
             await asyncio.sleep(0.5)
             await username_input.send_keys(username)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
             await username_input.send_keys("\n")
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
             page_content = await tab.get_content()
             if "Could not log you in" in page_content:
                 retry += 1
-                wait = retry * 10
-                print(f"Retrying in {wait} seconds...")
+                wait = retry * 5
+                print(f"Retrying username in {wait} seconds...", file=sys.stderr)
                 await asyncio.sleep(wait)
             else:
                 break
+        
+        # Security check detection
+        page_content = await tab.get_content()
+        if any(x in page_content.lower() for x in ["unusual activity", "verify your identity", "enter your phone", "enter your username"]):
+            print("[!] Security challenge detected! Twitter/X requires additional verification (Username/Phone/Email).", file=sys.stderr)
 
         # Enter password
         print("[*] Entering password...", file=sys.stderr)
         pretry = 0
+        password_input = None
         while pretry < 5:
-            password_input = await tab.find(
-                'input[autocomplete="current-password"]', timeout=15
-            )
+            try:
+                selectors = [
+                    'input[autocomplete="current-password"]',
+                    'input[name="password"]',
+                    'input[type="password"]'
+                ]
+                for sel in selectors:
+                    try:
+                        password_input = await tab.find(sel, timeout=5)
+                        if password_input:
+                            print(f"[+] Found password input with selector: {sel}", file=sys.stderr)
+                            break
+                    except:
+                        continue
+
+                if not password_input:
+                    page_content = await tab.get_content()
+                    if "unusual" in page_content.lower():
+                         raise Exception("Stuck on security challenge screen")
+                    raise Exception("Password input not found")
+            except Exception as e:
+                print(f"[!] Warning: Could not find password input: {e}", file=sys.stderr)
+                await asyncio.sleep(5)
+                pretry += 1
+                continue
+
             await password_input.click()
             await asyncio.sleep(0.5)
             await password_input.send_keys(password)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
             await password_input.send_keys("\n")
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
             page_content = await tab.get_content()
             if "Could not log you in" in page_content:
                 pretry += 1
-                wait = pretry * 10
-                print(f"Retrying in {wait} seconds...")
+                wait = pretry * 5
+                print(f"Retrying password in {wait} seconds...", file=sys.stderr)
                 await asyncio.sleep(wait)
             else:
                 break
 
         # Handle 2FA if needed
         page_content = await tab.get_content()
-        if "verification code" in page_content or "Enter code" in page_content:
+        if "verification code" in page_content.lower() or "enter code" in page_content.lower():
             if not totp_seed:
                 raise Exception("2FA required but no TOTP seed provided")
 
             print("[*] 2FA detected, entering code...", file=sys.stderr)
             totp_code = pyotp.TOTP(totp_seed).now()
-            code_input = await tab.select('input[type="text"]')
-            await code_input.send_keys(totp_code + "\n")
-            await asyncio.sleep(3)
+            # Try to find the 2FA input
+            code_input = None
+            try:
+                code_input = await tab.select('input[type="text"]')
+            except:
+                try:
+                    code_input = await tab.find('input[autocomplete="one-time-code"]', timeout=5)
+                except:
+                    pass
+            
+            if code_input:
+                await code_input.send_keys(totp_code + "\n")
+                await asyncio.sleep(5)
+            else:
+                print("[!] Error: 2FA detected but no code input found", file=sys.stderr)
 
         # Get cookies
         print("[*] Retrieving cookies...", file=sys.stderr)
-        for _ in range(20):  # 20 second timeout
+        for _ in range(30):
             cookies = await browser.cookies.get_all()
             cookies_dict = {cookie.name: cookie.value for cookie in cookies}
 
             if "auth_token" in cookies_dict and "ct0" in cookies_dict:
-                # Extract ID from twid cookie (may be URL-encoded)
                 user_id = None
                 if "twid" in cookies_dict:
                     twid = cookies_dict["twid"]
-                    # Try to extract the ID from twid (format: u%3D<id> or u=<id>)
                     if "u%3D" in twid:
                         user_id = twid.split("u%3D")[1].split("&")[0].strip('"')
                     elif "u=" in twid:
@@ -151,7 +204,7 @@ async def main():
         if arg == "--append":
             if i + 1 < len(sys.argv):
                 append_file = sys.argv[i + 1]
-                i += 2  # Skip '--append' and filename
+                i += 2
             else:
                 print("[!] Error: --append requires a filename", file=sys.stderr)
                 sys.exit(1)
@@ -163,8 +216,6 @@ async def main():
                 totp_seed = arg
             i += 1
         else:
-            # Unkown args
-            print(f"[!] Warning: Unknown argument: {arg}", file=sys.stderr)
             i += 1
 
     try:

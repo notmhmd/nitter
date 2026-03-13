@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import strutils, sequtils, uri, tables, json
+import strutils, sequtils, uri, tables, json, options
 from jester import Request, cookies
 
 import ../views/general
@@ -60,3 +60,47 @@ template applyUrlPrefs*() {.dirty.} =
 
 template respJson*(node: JsonNode) =
   resp $node, "application/json"
+
+proc toNode*(u: User): JsonNode =
+  result = newJObject()
+  result["id"] = %u.id
+  result["username"] = %u.username
+  result["fullname"] = %u.fullname
+  result["location"] = %u.location
+  result["website"] = %u.website
+  result["bio"] = %u.bio
+  result["userPic"] = %u.userPic
+  result["banner"] = %u.banner
+  result["following"] = %u.following
+  result["followers"] = %u.followers
+  result["tweets"] = %u.tweets
+  result["likes"] = %u.likes
+  result["media"] = %u.media
+  result["protected"] = %u.protected
+  result["suspended"] = %u.suspended
+  result["joinDate"] = %($u.joinDate)
+
+proc toNode*(t: Tweet): JsonNode =
+  if t == nil: return newJNull()
+  result = newJObject()
+  result["id"] = %t.id
+  result["text"] = %t.text
+  result["time"] = %($t.time)
+  result["location"] = %t.location
+  result["user"] = toNode(t.user)
+  result["replies"] = %t.stats.replies
+  result["retweets"] = %t.stats.retweets
+  result["likes"] = %t.stats.likes
+  result["views"] = %t.stats.views
+  
+  if t.retweet.isSome:
+    result["retweet"] = toNode(t.retweet.get())
+  if t.quote.isSome:
+    result["quote"] = toNode(t.quote.get())
+
+template respSearchJson*(timeline: Timeline) =
+  let content = newJArray()
+  for thread in timeline.content:
+    for t in thread:
+      content.add toNode(t)
+  respJson %*{"content": content, "bottom": timeline.bottom}

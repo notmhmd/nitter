@@ -664,7 +664,7 @@ proc parseGraphSearch*[T: User | Tweets](js: JsonNode; after=""): Result[T] =
       for e in instruction{"entries"}:
         let entryId = e.getEntryId
         when T is Tweets:
-          if entryId.startsWith("tweet"):
+          if entryId.startsWith("tweet") or entryId.startsWith("item-"):
             with tweetRes, getTweetResult(e):
               let tweet = parseGraphTweet(tweetRes)
               if not tweet.available:

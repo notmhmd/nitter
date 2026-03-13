@@ -58,12 +58,13 @@ proc genQueryParam*(query: Query): string =
   if query.kind == users:
     return query.text
 
-  param = "("
-  for i, user in query.fromUser:
-    param &= &"from:{user}"
-    if i < query.fromUser.high:
-      param &= " OR "
-  param &= ")"
+  if query.fromUser.len > 0:
+    param = "("
+    for i, user in query.fromUser:
+      param &= &"from:{user}"
+      if i < query.fromUser.high:
+        param &= " OR "
+    param &= ")"
 
   if query.fromUser.len > 0 and query.kind in {posts, media}:
     param &= " (filter:self_threads OR -filter:replies)"

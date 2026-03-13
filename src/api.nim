@@ -145,7 +145,7 @@ proc getGraphEditHistory*(id: string): Future[EditHistory] {.async.} =
     js = await fetch(url)
   result = parseGraphEditHistory(js, id)
 
-proc getGraphTweetSearch*(query: Query; after=""): Future[Timeline] {.async.} =
+proc getGraphTweetSearch*(query: Query; after=""; product="Latest"): Future[Timeline] {.async.} =
   let q = genQueryParam(query)
   if q.len == 0 or q == emptyQuery:
     return Timeline(query: query, beginning: true)
@@ -155,7 +155,7 @@ proc getGraphTweetSearch*(query: Query; after=""): Future[Timeline] {.async.} =
       "rawQuery": q,
       "query_source": "typedQuery",
       "count": 20,
-      "product": "Latest",
+      "product": product,
       "withDownvotePerspective": false,
       "withReactionsMetadata": false,
       "withReactionsPerspective": false
