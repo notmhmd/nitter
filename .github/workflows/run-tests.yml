@@ -136,6 +136,7 @@ jobs:
 
           echo '${{ secrets.SESSIONS }}' > ./sessions.jsonl
           if [ ! -s ./sessions.jsonl ]; then
+            echo "::warning title=Missing Session Secret::The SESSIONS secret is empty. Using a dummy session for startup tests."
             echo '{"kind": "cookie", "username": "dummy", "id": "1", "auth_token": "dummy", "ct0": "dummy"}' > ./sessions.jsonl
           fi
 
