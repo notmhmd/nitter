@@ -208,6 +208,8 @@ proc initSessionPool*(cfg: Config; path: string) =
 
   log "parsing JSONL account sessions file: ", path
   for line in path.lines:
+    if line.strip().len == 0:
+      continue
     sessionPool.add parseSession(line)
 
   log "successfully added ", sessionPool.len, " valid account sessions"

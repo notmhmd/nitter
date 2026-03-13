@@ -134,8 +134,10 @@ jobs:
           nim r tools/gencss.nim &
           wait
 
-          echo '${{ secrets.SESSIONS }}' | head -n1
           echo '${{ secrets.SESSIONS }}' > ./sessions.jsonl
+          if [ ! -s ./sessions.jsonl ]; then
+            echo '{"kind": "cookie", "username": "dummy", "id": "1", "auth_token": "dummy", "ct0": "dummy"}' > ./sessions.jsonl
+          fi
 
       - name: Run Tests
         run: |
