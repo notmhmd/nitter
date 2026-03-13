@@ -52,65 +52,155 @@ async def login_and_get_cookies(account, headless=False):
         print(f"[*] Entering username {username}...", file=sys.stderr)
 
         retry = 0
+        username_input = None
         while retry < 5:
-            username_input = await tab.find(
-                'input[autocomplete="username"]', timeout=10
-            )
+            try:
+                # Try multiple common selectors
+                selectors = [
+                    'input[autocomplete="username"]',
+                    'input[name="text"]',
+                    'input[type="text"]'
+                ]
+                for sel in selectors:
+                    try:
+                        username_input = await tab.find(sel, timeout=5)
+                        if username_input:
+                            print(f"[+] Found username input with selector: {sel}", file=sys.stderr)
+                            break
+                    except:
+                        continue
+                
+                if not username_input:
+                     raise Exception("No username input found with any selector")
+            except Exception as e:
+                print(f"[!] Warning: Could not find username input: {e}", file=sys.stderr)
+                await asyncio.sleep(5)
+                retry += 1
+                continue
 
             pos = await username_input.get_position()
             await tab.mouse_move(pos.x, pos.y, steps=50, flash=True)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
 
             await username_input.click()
             await asyncio.sleep(0.5)
             await username_input.send_keys(username)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
             await username_input.send_keys("\n")
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
             page_content = await tab.get_content()
             if "Could not log you in" in page_content:
                 retry += 1
-                wait = retry * 10
-                print(f"Retrying in {wait} seconds...")
+                wait = retry * 5
+                print(f"Retrying username in {wait} seconds...", file=sys.stderr)
                 await asyncio.sleep(wait)
             else:
                 break
+        
+        # Security check detection
+        page_content = await tab.get_content()
+        if any(x in page_content.lower() for x in ["unusual activity", "verify your identity", "enter your phone", "enter your username"]):
+            print(f"[!] Security challenge detected for {username}! Twitter/X requires additional verification (Username/Phone/Email).", file=sys.stderr)
+            
+            # Try to find the identifier input
+            id_input = None
+            selectors = [
+                'input[autocomplete="username"]',
+                'input[name="text"]',
+                'input[data-testid="ocfEnterTextTextInput"]'
+            ]
+            for sel in selectors:
+                try:
+                    id_input = await tab.find(sel, timeout=5)
+                    if id_input:
+                        print(f"[+] Found verification input field", file=sys.stderr)
+                        break
+                except:
+                    continue
+            
+            if id_input:
+                alternate_id = account.get("alternate_id") or account.get("id")
+                if not alternate_id:
+                     print(f"[!] Error: Security challenge detected but no alternate_id provided for {username} in JSON.", file=sys.stderr)
+                     raise Exception("Stuck on security challenge screen (needs alternate_id)")
+                
+                print(f"[*] Entering alternate identifier: {alternate_id}...", file=sys.stderr)
+                await id_input.send_keys(alternate_id + "\n")
+                await asyncio.sleep(5)
+            else:
+                 print("[!] Warning: Security challenge screen detected but no input field found.", file=sys.stderr)
 
         # Enter password
         print("[*] Entering password...", file=sys.stderr)
         pretry = 0
+        password_input = None
         while pretry < 5:
-            password_input = await tab.find(
-                'input[autocomplete="current-password"]', timeout=15
-            )
+            try:
+                selectors = [
+                    'input[autocomplete="current-password"]',
+                    'input[name="password"]',
+                    'input[type="password"]'
+                ]
+                for sel in selectors:
+                    try:
+                        password_input = await tab.find(sel, timeout=5)
+                        if password_input:
+                            print(f"[+] Found password input with selector: {sel}", file=sys.stderr)
+                            break
+                    except:
+                        continue
+
+                if not password_input:
+                    page_content = await tab.get_content()
+                    if "unusual" in page_content.lower():
+                         raise Exception("Stuck on security challenge screen")
+                    raise Exception("Password input not found")
+            except Exception as e:
+                print(f"[!] Warning: Could not find password input: {e}", file=sys.stderr)
+                await asyncio.sleep(5)
+                pretry += 1
+                continue
+
             await password_input.click()
             await asyncio.sleep(0.5)
             await password_input.send_keys(password)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
             await password_input.send_keys("\n")
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
             page_content = await tab.get_content()
             if "Could not log you in" in page_content:
                 pretry += 1
-                wait = pretry * 10
-                print(f"Retrying in {wait} seconds...")
+                wait = pretry * 5
+                print(f"Retrying password in {wait} seconds...", file=sys.stderr)
                 await asyncio.sleep(wait)
             else:
                 break
 
         # Handle 2FA if needed
         page_content = await tab.get_content()
-        if "verification code" in page_content or "Enter code" in page_content:
+        if "verification code" in page_content.lower() or "enter code" in page_content.lower():
             if not totp_seed:
                 raise Exception("2FA required but no TOTP seed provided")
 
             print("[*] 2FA detected, entering code...", file=sys.stderr)
             totp_code = pyotp.TOTP(totp_seed).now()
-            code_input = await tab.select('input[type="text"]')
-            await code_input.send_keys(totp_code + "\n")
-            await asyncio.sleep(3)
+            # Try to find the 2FA input
+            code_input = None
+            try:
+                code_input = await tab.select('input[type="text"]')
+            except:
+                try:
+                    code_input = await tab.find('input[autocomplete="one-time-code"]', timeout=5)
+                except:
+                    pass
+            
+            if code_input:
+                await code_input.send_keys(totp_code + "\n")
+                await asyncio.sleep(5)
+            else:
+                print("[!] Error: 2FA detected but no code input found", file=sys.stderr)
 
         # Get cookies
         print("[*] Retrieving cookies...", file=sys.stderr)

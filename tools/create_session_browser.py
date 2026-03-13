@@ -16,7 +16,7 @@ import nodriver as uc
 import pyotp
 
 
-async def login_and_get_cookies(username, password, totp_seed=None, headless=False):
+async def login_and_get_cookies(username, password, totp_seed=None, alternate_id=None, headless=False):
     """Authenticate with X.com and extract session cookies"""
     browser = await uc.start(
         headless=headless,
@@ -83,6 +83,33 @@ async def login_and_get_cookies(username, password, totp_seed=None, headless=Fal
         page_content = await tab.get_content()
         if any(x in page_content.lower() for x in ["unusual activity", "verify your identity", "enter your phone", "enter your username"]):
             print("[!] Security challenge detected! Twitter/X requires additional verification (Username/Phone/Email).", file=sys.stderr)
+            
+            # Try to find the identifier input
+            id_input = None
+            selectors = [
+                'input[autocomplete="username"]',
+                'input[name="text"]',
+                'input[data-testid="ocfEnterTextTextInput"]'
+            ]
+            for sel in selectors:
+                try:
+                    id_input = await tab.find(sel, timeout=5)
+                    if id_input:
+                        print(f"[+] Found verification input field", file=sys.stderr)
+                        break
+                except:
+                    continue
+            
+            if id_input:
+                if not alternate_id:
+                     print("[!] Error: Security challenge detected but no ID provided. Use --id <username/phone/email>.", file=sys.stderr)
+                     raise Exception("Stuck on security challenge screen (needs ID)")
+                
+                print(f"[*] Entering alternate identifier: {alternate_id}...", file=sys.stderr)
+                await id_input.send_keys(alternate_id + "\n")
+                await asyncio.sleep(5)
+            else:
+                 print("[!] Warning: Security challenge screen detected but no input field found.", file=sys.stderr)
 
         # Enter password
         print("[*] Entering password...", file=sys.stderr)
@@ -194,6 +221,7 @@ async def main():
     username = sys.argv[1]
     password = sys.argv[2]
     totp_seed = None
+    alternate_id = None
     append_file = None
     headless = False
 
@@ -208,6 +236,13 @@ async def main():
             else:
                 print("[!] Error: --append requires a filename", file=sys.stderr)
                 sys.exit(1)
+        elif arg == "--id":
+            if i + 1 < len(sys.argv):
+                alternate_id = sys.argv[i + 1]
+                i += 2
+            else:
+                print("[!] Error: --id requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg == "--headless":
             headless = True
             i += 1
@@ -219,7 +254,7 @@ async def main():
             i += 1
 
     try:
-        cookies = await login_and_get_cookies(username, password, totp_seed, headless)
+        cookies = await login_and_get_cookies(username, password, totp_seed, alternate_id, headless)
         session = {
             "kind": "cookie",
             "username": cookies["username"],

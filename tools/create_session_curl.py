@@ -151,7 +151,27 @@ def submit_username(session, flow_token, headers, guest_token, username):
         if error_msg:
             raise Exception(f"Login denied: {error_msg}")
 
-    return flow_token
+    return flow_token, data
+
+
+def submit_alternate_identifier(session, flow_token, headers, guest_token, alternate_id):
+    """Submit alternate identifier (username/phone/email)."""
+    headers = headers.copy()
+    headers["X-Guest-Token"] = guest_token
+
+    subtask = {
+        "subtask_id": "LoginEnterAlternateIdentifierSubtask",
+        "settings_list": {
+            "setting_responses": [{
+                "key": "alternate_identifier",
+                "response_data": {"text_data": {"result": alternate_id}}
+            }],
+            "link": "next_link"
+        }
+    }
+
+    flow_token, data = make_request(session, headers, flow_token, subtask, "Submitting alternate identifier")
+    return flow_token, data
 
 
 def submit_password(session, flow_token, headers, guest_token, password):
@@ -166,11 +186,13 @@ def submit_password(session, flow_token, headers, guest_token, password):
 
     flow_token, data = make_request(session, headers, flow_token, subtask, "Submitting password")
 
-    needs_2fa = any(s.get('subtask_id') == 'LoginTwoFactorAuthChallenge' for s in data.get('subtasks', []))
+    subtasks = data.get('subtasks', [])
+    needs_2fa = any(s.get('subtask_id') == 'LoginTwoFactorAuthChallenge' for s in subtasks)
+    
     if needs_2fa:
         print("[*] 2FA required", file=sys.stderr)
 
-    return flow_token, needs_2fa
+    return flow_token, needs_2fa, data
 
 
 def submit_2fa(session, flow_token, headers, guest_token, totp_seed):
@@ -238,7 +260,7 @@ def extract_user_id(cookies_dict):
     return None
 
 
-def login_and_get_cookies(username, password, totp_seed=None):
+def login_and_get_cookies(username, password, totp_seed=None, alternate_id=None):
     """Authenticate with X.com and extract session cookies."""
     session = requests.Session(impersonate="chrome")
 
@@ -246,8 +268,29 @@ def login_and_get_cookies(username, password, totp_seed=None):
         guest_token = get_guest_token(session)
         flow_token, headers = init_flow(session, guest_token)
         flow_token = submit_js_instrumentation(session, flow_token, headers, guest_token)
-        flow_token = submit_username(session, flow_token, headers, guest_token, username)
-        flow_token, needs_2fa = submit_password(session, flow_token, headers, guest_token, password)
+        
+        # Submit username and handle potential alternate identifier requirement
+        subtask = {
+            "subtask_id": "LoginEnterUserIdentifierSSO",
+            "settings_list": {
+                "setting_responses": [{
+                    "key": "user_identifier",
+                    "response_data": {"text_data": {"result": username}}
+                }],
+                "link": "next_link"
+            }
+        }
+        flow_token, data = make_request(session, headers, flow_token, subtask, "Submitting username")
+        
+        # Check if we need alternate identifier
+        subtasks = data.get('subtasks', [])
+        if any(s.get('subtask_id') == 'LoginEnterAlternateIdentifierSubtask' for s in subtasks):
+            if not alternate_id:
+                raise Exception("Security challenge: LoginEnterAlternateIdentifierSubtask. Provide alternate_id.")
+            flow_token, data = submit_alternate_identifier(session, flow_token, headers, guest_token, alternate_id)
+
+        # Submit password
+        flow_token, needs_2fa, data = submit_password(session, flow_token, headers, guest_token, password)
 
         if needs_2fa:
             flow_token = submit_2fa(session, flow_token, headers, guest_token, totp_seed)
@@ -282,6 +325,7 @@ def main():
     username = sys.argv[1]
     password = sys.argv[2]
     totp_seed = None
+    alternate_id = None
     append_file = None
 
     # Parse optional arguments
@@ -295,6 +339,13 @@ def main():
             else:
                 print('[!] Error: --append requires a filename', file=sys.stderr)
                 sys.exit(1)
+        elif arg == '--id':
+            if i + 1 < len(sys.argv):
+                alternate_id = sys.argv[i + 1]
+                i += 2
+            else:
+                print('[!] Error: --id requires a value', file=sys.stderr)
+                sys.exit(1)
         elif not arg.startswith('--'):
             if totp_seed is None:
                 totp_seed = arg
@@ -304,7 +355,7 @@ def main():
             i += 1
 
     try:
-        cookies = login_and_get_cookies(username, password, totp_seed)
+        cookies = login_and_get_cookies(username, password, totp_seed, alternate_id)
 
         session = {
             'kind': 'cookie',
