@@ -145,7 +145,7 @@ proc getGraphEditHistory*(id: string): Future[EditHistory] {.async.} =
     js = await fetch(url)
   result = parseGraphEditHistory(js, id)
 
-proc populateThreadRoots(timeline: var Timeline) {.async.} =
+proc populateThreadRoots(timeline: Timeline) {.async.} =
   var rootTweets = initTable[int64, Tweet]()
   for thread in timeline.content:
     for t in thread:
