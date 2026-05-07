@@ -217,6 +217,7 @@ type
     attribution*: Option[User]
     mediaTags*: seq[User]
     quote*: Option[Tweet]
+    threadRoot*: Option[Tweet]
     card*: Option[Card]
     poll*: Option[Poll]
     gif*: Option[Gif]

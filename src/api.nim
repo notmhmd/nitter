@@ -145,6 +145,36 @@ proc getGraphEditHistory*(id: string): Future[EditHistory] {.async.} =
     js = await fetch(url)
   result = parseGraphEditHistory(js, id)
 
+proc populateThreadRoots(timeline: var Timeline) {.async.} =
+  var rootTweets = initTable[int64, Tweet]()
+  for thread in timeline.content:
+    for t in thread:
+      rootTweets[t.id] = t
+
+  var missingIds: seq[int64]
+  for thread in timeline.content:
+    for t in thread:
+      if t.replyId > 0 and t.threadId > 0 and t.threadId notin rootTweets:
+        missingIds.add t.threadId
+
+  if missingIds.len > 0:
+    let uniqueMissingIds = missingIds.deduplicate()
+    var futures: seq[Future[Tweet]]
+    for id in uniqueMissingIds:
+      futures.add getGraphTweetResult($id)
+    
+    let fetched = await all(futures)
+    for t in fetched:
+      if t != nil:
+        rootTweets[t.id] = t
+
+  for thread in timeline.content:
+    for t in thread:
+      if t.threadId > 0 and t.threadId in rootTweets:
+        let root = rootTweets[t.threadId]
+        if root.id != t.id:
+          t.threadRoot = some(root)
+
 proc getGraphTweetSearch*(query: Query; after=""; product="Latest"): Future[Timeline] {.async.} =
   let q = genQueryParam(query)
   if q.len == 0 or q == emptyQuery:
@@ -167,6 +197,8 @@ proc getGraphTweetSearch*(query: Query; after=""; product="Latest"): Future[Time
     js = await fetch(url)
   result = parseGraphSearch[Tweets](js, after)
   result.query = query
+
+  await populateThreadRoots(result)
 
   # when no more items are available the API just returns the last page in
   # full. this detects that and clears the page instead.

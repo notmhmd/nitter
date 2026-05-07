@@ -97,6 +97,14 @@ proc toNode*(t: Tweet): JsonNode =
     result["retweet"] = toNode(t.retweet.get())
   if t.quote.isSome:
     result["quote"] = toNode(t.quote.get())
+  if t.threadRoot.isSome:
+    result["threadRoot"] = toNode(t.threadRoot.get())
+  if t.replyId > 0:
+    result["replyId"] = %t.replyId
+  if t.threadId > 0:
+    result["threadId"] = %t.threadId
+  if t.reply.len > 0:
+    result["replyingTo"] = %t.reply
 
 template respSearchJson*(timeline: Timeline) =
   let content = newJArray()
