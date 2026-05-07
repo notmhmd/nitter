@@ -159,14 +159,14 @@ proc populateThreadRoots(timeline: Timeline) {.async.} =
 
   if missingIds.len > 0:
     let uniqueMissingIds = missingIds.deduplicate()
-    var futures: seq[Future[Tweet]]
+    var futures: seq[Future[Conversation]]
     for id in uniqueMissingIds:
-      futures.add getGraphTweetResult($id)
+      futures.add getTweet($id)
     
     let fetched = await all(futures)
-    for t in fetched:
-      if t != nil:
-        rootTweets[t.id] = t
+    for c in fetched:
+      if c.tweet != nil:
+        rootTweets[c.tweet.id] = c.tweet
 
   for thread in timeline.content:
     for t in thread:
