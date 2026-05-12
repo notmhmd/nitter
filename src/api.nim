@@ -158,15 +158,24 @@ proc populateThreadRoots(timeline: Timeline) {.async.} =
         missingIds.add t.threadId
 
   if missingIds.len > 0:
-    let uniqueMissingIds = missingIds.deduplicate()
+    var uniqueMissingIds = missingIds.deduplicate()
+    echo "[threadRoot] found ", uniqueMissingIds.len, " missing root IDs"
+    if uniqueMissingIds.len > 2:
+      uniqueMissingIds.setLen(2)
+
     var futures: seq[Future[Conversation]]
     for id in uniqueMissingIds:
       futures.add getTweet($id)
     
-    let fetched = await all(futures)
-    for c in fetched:
-      if c.tweet != nil:
-        rootTweets[c.tweet.id] = c.tweet
+    try:
+      let fetched = await all(futures)
+      for c in fetched:
+        if c.tweet != nil:
+          echo "[threadRoot] successfully fetched root tweet ", c.tweet.id
+          rootTweets[c.tweet.id] = c.tweet
+    except Exception as e:
+      echo "[threadRoot] error fetching roots: ", e.msg
+      discard
 
   for thread in timeline.content:
     for t in thread:
@@ -198,7 +207,7 @@ proc getGraphTweetSearch*(query: Query; after=""; product="Latest"): Future[Time
   result = parseGraphSearch[Tweets](js, after)
   result.query = query
 
-  await populateThreadRoots(result)
+  # await populateThreadRoots(result)
 
   # when no more items are available the API just returns the last page in
   # full. this detects that and clears the page instead.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import strutils, sequtils, uri, tables, json, options
+import strutils, sequtils, uri, tables, json, options, times
 from jester import Request, cookies
 
 import ../views/general
@@ -78,14 +78,14 @@ proc toNode*(u: User): JsonNode =
   result["media"] = %u.media
   result["protected"] = %u.protected
   result["suspended"] = %u.suspended
-  result["joinDate"] = %($u.joinDate)
+  result["joinDate"] = %(u.joinDate.format("yyyy-MM-dd'T'HH:mm:ss'Z'"))
 
 proc toNode*(t: Tweet): JsonNode =
   if t == nil: return newJNull()
   result = newJObject()
-  result["id"] = %t.id
+  result["id"] = %($t.id)
   result["text"] = %t.text
-  result["time"] = %($t.time)
+  result["time"] = %(t.time.format("yyyy-MM-dd'T'HH:mm:ss'Z'"))
   result["location"] = %t.location
   result["user"] = toNode(t.user)
   result["replies"] = %t.stats.replies
@@ -100,11 +100,15 @@ proc toNode*(t: Tweet): JsonNode =
   if t.threadRoot.isSome:
     result["threadRoot"] = toNode(t.threadRoot.get())
   if t.replyId > 0:
-    result["replyId"] = %t.replyId
+    result["replyId"] = %($t.replyId)
   if t.threadId > 0:
-    result["threadId"] = %t.threadId
+    result["threadId"] = %($t.threadId)
+    result["rootId"] = %($t.threadId)
   if t.reply.len > 0:
     result["replyingTo"] = %t.reply
+
+proc `%`*(t: Tweet): JsonNode = toNode(t)
+proc `%`*(u: User): JsonNode = toNode(u)
 
 template respSearchJson*(timeline: Timeline) =
   let content = newJArray()

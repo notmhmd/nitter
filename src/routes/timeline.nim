@@ -112,16 +112,30 @@ proc createTimelineRouter*(cfg: Config) =
       redirect("/" & username)
 
     get "/@name/?@tab?/?":
-      cond '.' notin @"name"
-      cond @"name" notin ["pic", "gif", "video", "search", "settings", "login", "intent", "i"]
-      cond @"name".allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_', ','})
+      var name = @"name"
+      let isJson = name.endsWith(".json")
+      if isJson:
+        name = name[0 .. ^6]
+      
+      if not isJson:
+        cond '.' notin name
+      
+      cond name notin ["pic", "gif", "video", "search", "settings", "login", "intent", "i"]
+      
+      if isJson:
+        let user = await getCachedUser(name)
+        if user.username.len == 0:
+          resp Http404, "{\"error\": \"User not found\"}", "application/json"
+        respJson %user
+
+      cond name.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_', ','})
       cond @"tab" in ["with_replies", "media", "search", ""]
       let
         prefs = requestPrefs()
         after = getCursor()
-        names = getNames(@"name")
+        names = getNames(name)
 
-      var query = request.getQuery(@"tab", @"name")
+      var query = request.getQuery(@"tab", name)
       if names.len != 1:
         query.fromUser = names
 

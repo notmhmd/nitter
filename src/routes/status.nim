@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import asyncdispatch, strutils, sequtils, uri, options, sugar
+import asyncdispatch, strutils, sequtils, uri, options, sugar, json
 
 import jester, karax/vdom
 
@@ -16,10 +16,16 @@ proc createStatusRouter*(cfg: Config) =
   router status:
     get "/@name/status/@id/?":
       cond '.' notin @"name"
-      let id = @"id"
+      var id = @"id"
+      let isJson = id.endsWith(".json")
+      if isJson:
+        id = id[0 .. ^6]
 
       if id.len > 19 or id.any(c => not c.isDigit):
-        resp Http404, showError("Invalid tweet ID", cfg)
+        if isJson:
+          resp Http404, "{\"error\": \"Invalid tweet ID\"}", "application/json"
+        else:
+          resp Http404, showError("Invalid tweet ID", cfg)
 
       let prefs = requestPrefs()
 
@@ -36,7 +42,14 @@ proc createStatusRouter*(cfg: Config) =
         var error = "Tweet not found"
         if conv != nil and conv.tweet != nil and conv.tweet.tombstone.len > 0:
           error = conv.tweet.tombstone
-        resp Http404, showError(error, cfg)
+        
+        if isJson:
+          resp Http404, "{\"error\": \"" & error & "\"}", "application/json"
+        else:
+          resp Http404, showError(error, cfg)
+
+      if isJson:
+        respJson %conv.tweet
 
       let
         title = pageTitle(conv.tweet)
