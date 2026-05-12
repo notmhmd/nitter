@@ -9,7 +9,8 @@ COPY nitter.nimble .
 RUN nimble install -y --depsOnly
 
 COPY . .
-RUN nimble build -d:danger -d:lto -d:strip --mm:refc \
+RUN --mount=type=cache,target=/root/.cache/nim \
+    nimble build -d:danger -d:strip --mm:refc \
     && nimble scss \
     && nimble md
 

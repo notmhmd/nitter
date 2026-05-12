@@ -38,6 +38,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: notmhmd/nitter:latest,notmhmd/nitter:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push ARM64 image
         uses: docker/build-push-action@v5
@@ -47,3 +49,5 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: notmhmd/nitter:latest-arm64,notmhmd/nitter:${{ github.sha }}-arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
